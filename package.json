@@ -1,0 +1,17 @@
+{
+  "name": "cordova-plugin-display-lock",
+  "version": "1.0.0",
+  "description": "Locks Android Display Zoom and Font Scaling for OutSystems Mobile",
+  "cordova": {
+    "id": "cordova-plugin-display-lock",
+    "platforms": [
+      "android"
+    ]
+  },
+  "keywords": [
+    "ecosystem:cordova",
+    "cordova-android"
+  ],
+  "author": "OutSystems Developer",
+  "license": "MIT"
+}
