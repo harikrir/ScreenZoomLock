@@ -2,28 +2,27 @@
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
         id="cordova-plugin-display-lock"
         version="1.0.0">
+
     <name>DisplayLock</name>
-    <description>Locks Android Display Zoom (densityDpi) and Font Scaling for OutSystems Mobile</description>
-    <license>MIT</license>
 
     <js-module src="www/DisplayLock.js" name="DisplayLock">
         <clobbers target="cordova.plugins.DisplayLock" />
     </js-module>
 
     <platform name="android">
-        <!-- Register Cordova feature with onload true to run before web assets render -->
+
         <config-file target="res/xml/config.xml" parent="/*">
-            <feature name="DisplayLockPlugin">
-                <param name="android-package" value="com.outsystems.plugin.displaylock.DisplayLockPlugin" />
+            <feature name="DisplayLock">
+                <param name="android-package"
+                       value="com.outsystems.plugin.displaylock.DisplayLockPlugin" />
                 <param name="onload" value="true" />
             </feature>
         </config-file>
 
-        <!-- Ensure MainActivity intercepts density and fontScale config changes -->
-        <edit-config file="AndroidManifest.xml" target="/manifest/application/activity[@android:name='MainActivity']" mode="merge">
-            <activity android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|screenLayout|smallestScreenSize|uiMode|fontScale|density" />
-        </edit-config>
+        <source-file
+            src="src/android/DisplayLockPlugin.java"
+            target-dir="src/com/outsystems/plugin/displaylock" />
 
-        <source-file src="src/android/enforceLock.java" target-dir="src/com/outsystems/plugin/displaylock" />
     </platform>
+
 </plugin>
