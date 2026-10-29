@@ -7,7 +7,7 @@
     <license>MIT</license>
 
     <js-module src="www/DisplayLock.js" name="DisplayLock">
-        <clobbers target="window.plugins.DisplayLock" />
+        <clobbers target="cordova.plugins.DisplayLock" />
     </js-module>
 
     <platform name="android">
