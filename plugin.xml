@@ -24,6 +24,6 @@
             <activity android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|screenLayout|smallestScreenSize|uiMode|fontScale|density" />
         </edit-config>
 
-        <source-file src="src/android/DisplayLockPlugin.java" target-dir="src/com/outsystems/plugin/displaylock" />
+        <source-file src="src/android/enforceLock.java" target-dir="src/com/outsystems/plugin/displaylock" />
     </platform>
 </plugin>
