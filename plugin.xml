@@ -4,18 +4,23 @@
         version="1.0.0">
 
     <name>DisplayLock</name>
+    <description>Plugin to safely enforce standard font scale and lock zoom/display settings in OutSystems Cordova apps.</description>
+    <license>MIT</license>
+    <keywords>cordova,outsystems,display,zoom,dpi,fontscale</keywords>
 
+    <!-- JavaScript Interface -->
     <js-module src="www/DisplayLock.js" name="DisplayLock">
         <clobbers target="cordova.plugins.DisplayLock" />
     </js-module>
 
+    <!-- Android Platform Configuration -->
     <platform name="android">
 
         <config-file target="res/xml/config.xml" parent="/*">
             <feature name="DisplayLock">
                 <param name="android-package"
                        value="com.outsystems.plugin.displaylock.DisplayLockPlugin" />
-                <param name="onload" value="true" />
+                <!-- "onload" parameter intentionally omitted so it will never run during app startup -->
             </feature>
         </config-file>
 
