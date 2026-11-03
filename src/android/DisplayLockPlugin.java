@@ -10,37 +10,50 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import org.apache.cordova.CallbackContext;
-import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CordovaPlugin;
-import org.apache.cordova.CordovaWebView;
 import org.json.JSONArray;
 import org.json.JSONException;
 
 public class DisplayLockPlugin extends CordovaPlugin {
 
-    @Override
-    public void initialize(CordovaInterface cordova, CordovaWebView webView) {
-        super.initialize(cordova, webView);
-        enforceFixedDisplayMetrics();
-    }
+    private static final String ACTION_ENFORCE_LOCK = "enforceLock";
 
     @Override
-    public void onResume(boolean multitasking) {
-        super.onResume(multitasking);
-        enforceFixedDisplayMetrics();
-    }
+    public boolean execute(String action, JSONArray args, final CallbackContext callbackContext) throws JSONException {
+        if (ACTION_ENFORCE_LOCK.equals(action)) {
+            final Activity activity = cordova.getActivity();
 
-    @Override
-    public boolean execute(String action,
-                           JSONArray args,
-                           CallbackContext callbackContext)
-            throws JSONException {
+            if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+                callbackContext.error("Activity is not in a valid state");
+                return true;
+            }
 
-        if ("enforceLock".equals(action)) {
+            activity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        boolean isSafeForNativeMetrics = isSafeToModifyNativeMetrics(activity);
 
-            enforceFixedDisplayMetrics();
+                        // 1. Safe Native Font Scale adjustment (only for standard handheld phones)
+                        if (isSafeForNativeMetrics) {
+                            applySafeNativeFontScale(activity);
+                        }
 
-            callbackContext.success("Display settings locked");
+                        // 2. Safe WebView Text Zoom (Universal and isolated to this app's WebView)
+                        applyWebViewLock();
+
+                        // 3. Isolated CSS adjustment
+                        applyCssTextSizeLock();
+
+                        callbackContext.success(isSafeForNativeMetrics 
+                            ? "Full display lock applied" 
+                            : "Partial display lock applied (safe fallback)");
+                    } catch (Exception e) {
+                        // Fail silently or report without crashing the app
+                        callbackContext.error("Display lock skipped due to safety check: " + e.getMessage());
+                    }
+                }
+            });
 
             return true;
         }
@@ -48,94 +61,79 @@ public class DisplayLockPlugin extends CordovaPlugin {
         return false;
     }
 
-    private void enforceFixedDisplayMetrics() {
-
-        final Activity activity = cordova.getActivity();
-
-        if (activity == null) {
-            return;
+    /**
+     * Determines whether modifying native Activity resources is safe on this device.
+     */
+    private boolean isSafeToModifyNativeMetrics(Activity activity) {
+        // Exclude devices below Android 7.0 (API 24) to avoid runtime instability
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return false;
         }
 
-        activity.runOnUiThread(new Runnable() {
+        // Do not touch native metrics if the app is currently in Multi-Window / Split-Screen mode
+        if (activity.isInMultiWindowMode()) {
+            return false;
+        }
 
-            @Override
-            public void run() {
+        // Check if device is a Tablet (sw600dp or larger)
+        Configuration config = activity.getResources().getConfiguration();
+        boolean isTablet = (config.smallestScreenWidthDp >= 600);
+        if (isTablet) {
+            // Keep tablet scaling untouched to prevent unexpected UI stretching
+            return false;
+        }
 
-                try {
-
-                    Resources resources = activity.getResources();
-
-                    Configuration configuration =
-                            new Configuration(resources.getConfiguration());
-
-                    DisplayMetrics metrics =
-                            resources.getDisplayMetrics();
-
-                    configuration.fontScale = 1.0f;
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-
-                        int stableDensity =
-                                DisplayMetrics.DENSITY_DEVICE_STABLE;
-
-                        configuration.densityDpi =
-                                stableDensity;
-
-                        metrics.densityDpi =
-                                stableDensity;
-
-                        metrics.density =
-                                (float) stableDensity /
-                                DisplayMetrics.DENSITY_DEFAULT;
-
-                        metrics.scaledDensity =
-                                metrics.density;
-                    }
-
-                    resources.updateConfiguration(
-                            configuration,
-                            metrics
-                    );
-
-                    View view =
-                            webView.getEngine().getView();
-
-                    if (view instanceof WebView) {
-
-                        WebView nativeWebView =
-                                (WebView) view;
-
-                        WebSettings settings =
-                                nativeWebView.getSettings();
-
-                        settings.setTextZoom(100);
-                        settings.setSupportZoom(false);
-                        settings.setBuiltInZoomControls(false);
-                        settings.setDisplayZoomControls(false);
-                    }
-
-                    nativeInjectCss();
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        });
+        return true;
     }
 
-    private void nativeInjectCss() {
-
+    private void applySafeNativeFontScale(Activity activity) {
         try {
+            Resources res = activity.getResources();
+            Configuration config = res.getConfiguration();
 
-            String js =
-                    "(function(){" +
-                    "var style=document.createElement('style');" +
-                    "style.innerHTML='html{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important;}';" +
-                    "document.head.appendChild(style);" +
-                    "})();";
+            // Only update if the user has drifted from standard scale (1.0f)
+            if (config.fontScale != 1.0f) {
+                config.fontScale = 1.0f;
+                DisplayMetrics metrics = res.getDisplayMetrics();
+                metrics.scaledDensity = metrics.density * config.fontScale;
+                
+                // Safe localized update
+                res.updateConfiguration(config, metrics);
+            }
+        } catch (Exception ignored) {
+            // If the OEM OS blocks configuration mutation, fail silently
+        }
+    }
+
+    private void applyWebViewLock() {
+        try {
+            View engineView = webView.getEngine().getView();
+            if (engineView instanceof WebView) {
+                WebView nativeWebView = (WebView) engineView;
+                WebSettings settings = nativeWebView.getSettings();
+
+                // WebSettings.setTextZoom is safe across all Android versions (API 1+)
+                // and strictly scopes to this WebView without touching system settings
+                settings.setTextZoom(100);
+                settings.setSupportZoom(false);
+                settings.setBuiltInZoomControls(false);
+                settings.setDisplayZoomControls(false);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void applyCssTextSizeLock() {
+        try {
+            String js = "(function(){"
+                    + "if (document.getElementById('display-lock-style')) return;"
+                    + "var style = document.createElement('style');"
+                    + "style.id = 'display-lock-style';"
+                    + "style.innerHTML = 'html, body { -webkit-text-size-adjust: 100% !important; text-size-adjust: 100% !important; }';"
+                    + "if (document.head) { document.head.appendChild(style); }"
+                    + "})();";
 
             webView.loadUrl("javascript:" + js);
-
         } catch (Exception ignored) {
         }
     }
