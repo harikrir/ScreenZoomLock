@@ -5,8 +5,8 @@ var DisplayLock = {
      * Enforces the display and zoom lock manually.
      * Safe across Android versions, tablets, and split-screen modes.
      *
-     * @param {Function} [successCallback] - Called on successful application or safe fallback.
-     * @param {Function} [errorCallback]   - Called if activity is invalid or an exception occurs.
+     * @param {Function} [successCallback] - Callback for successful lock or safe fallback
+     * @param {Function} [errorCallback]   - Callback if execution fails
      */
     enforceLock: function (successCallback, errorCallback) {
         var success = typeof successCallback === 'function' ? successCallback : function () {};
