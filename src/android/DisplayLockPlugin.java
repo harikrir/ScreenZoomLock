@@ -21,22 +21,20 @@ public class DisplayLockPlugin extends CordovaPlugin {
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
 
         if ("enforceLock".equals(action)) {
-
             this.callbackContext = callbackContext;
 
             try {
-                enforceDisplaySettings();
+                enforceScreenZoomLock();
             } catch (Exception e) {
                 callbackContext.error("FAILED_TO_INITIATE_LOCK");
             }
-
             return true;
         }
 
         return false;
     }
 
-    private void enforceDisplaySettings() {
+    private void enforceScreenZoomLock() {
 
         Activity activity = cordova.getActivity();
 
@@ -55,28 +53,40 @@ public class DisplayLockPlugin extends CordovaPlugin {
         }
 
         activity.runOnUiThread(() -> {
-
             try {
-                boolean nativeApplied = false;
+                int stableDpi = DisplayMetrics.DENSITY_DEVICE_STABLE;
+                int currentDpi = activity.getResources().getConfiguration().densityDpi;
+                boolean dpiChanged = false;
 
-                // 1. Safe Native Configuration Check (Standard phones only)
-                if (isSafeForNativeMetrics(activity)) {
-                    nativeApplied = applySafeNativeFontScale(activity);
+                // 1. Force native DisplayMetrics and Configuration back to hardware stable DPI
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    Resources res = activity.getResources();
+                    Configuration config = res.getConfiguration();
+
+                    if (config.densityDpi != stableDpi) {
+                        config.densityDpi = stableDpi;
+
+                        DisplayMetrics metrics = res.getDisplayMetrics();
+                        metrics.densityDpi = stableDpi;
+                        metrics.density = (float) stableDpi / DisplayMetrics.DENSITY_DEFAULT;
+
+                        res.updateConfiguration(config, metrics);
+                        dpiChanged = true;
+                    }
                 }
 
-                // 2. Lock WebView Settings
-                applyWebViewLock();
+                // 2. Lock WebView settings against user gestures
+                lockWebViewZoomControls();
 
-                // 3. Inject CSS text-size lock
-                applyCssTextSizeLock();
+                // 3. Normalize viewport density in Chromium DOM
+                normalizeWebViewportDensity(stableDpi, currentDpi);
 
-                // Build Structured JSON Response
+                // Build response
                 JSONObject response = new JSONObject();
                 response.put("status", "SUCCESS");
-                response.put("nativeAdjusted", nativeApplied);
-                response.put("message", nativeApplied 
-                        ? "Full display lock applied (Native + WebView)" 
-                        : "WebView display lock applied (Native preserved)");
+                response.put("originalDpi", currentDpi);
+                response.put("lockedDpi", stableDpi);
+                response.put("dpiAdjusted", dpiChanged);
 
                 if (callbackContext != null) {
                     callbackContext.success(response);
@@ -97,39 +107,7 @@ public class DisplayLockPlugin extends CordovaPlugin {
         });
     }
 
-    private boolean isSafeForNativeMetrics(Activity activity) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-            return false;
-        }
-
-        if (activity.isInMultiWindowMode()) {
-            return false;
-        }
-
-        Configuration config = activity.getResources().getConfiguration();
-        return config.smallestScreenWidthDp < 600;
-    }
-
-    @SuppressWarnings("deprecation")
-    private boolean applySafeNativeFontScale(Activity activity) {
-        try {
-            Resources res = activity.getResources();
-            Configuration config = res.getConfiguration();
-
-            if (config.fontScale != 1.0f) {
-                config.fontScale = 1.0f;
-                DisplayMetrics metrics = res.getDisplayMetrics();
-                metrics.scaledDensity = metrics.density * config.fontScale;
-
-                res.updateConfiguration(config, metrics);
-                return true;
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
-    }
-
-    private void applyWebViewLock() {
+    private void lockWebViewZoomControls() {
         try {
             if (webView == null || webView.getEngine() == null) {
                 return;
@@ -140,7 +118,7 @@ public class DisplayLockPlugin extends CordovaPlugin {
                 WebView nativeWebView = (WebView) engineView;
                 WebSettings settings = nativeWebView.getSettings();
 
-                settings.setTextZoom(100);
+                // Keep WebSettings zoom mechanisms disabled
                 settings.setSupportZoom(false);
                 settings.setBuiltInZoomControls(false);
                 settings.setDisplayZoomControls(false);
@@ -149,18 +127,29 @@ public class DisplayLockPlugin extends CordovaPlugin {
         }
     }
 
-    private void applyCssTextSizeLock() {
+    /**
+     * Enforces viewport density scaling dynamically inside the Chromium DOM
+     * so OutSystems layouts recalculate container widths according to hardware baseline DPI.
+     */
+    private void normalizeWebViewportDensity(int stableDpi, int currentDpi) {
         try {
             if (webView == null) {
                 return;
             }
 
+            // Ratio of original user zoom vs standard stable hardware density
+            double scaleRatio = (double) stableDpi / (double) (currentDpi > 0 ? currentDpi : stableDpi);
+
             String js = "(function(){"
-                    + "if(document.getElementById('display-lock-style')) return;"
-                    + "var s = document.createElement('style');"
-                    + "s.id = 'display-lock-style';"
-                    + "s.innerHTML = 'html, body { -webkit-text-size-adjust: 100% !important; text-size-adjust: 100% !important; }';"
-                    + "if(document.head){ document.head.appendChild(s); }"
+                    + "var meta = document.querySelector('meta[name=\"viewport\"]');"
+                    + "if(!meta){"
+                    + "  meta = document.createElement('meta');"
+                    + "  meta.name = 'viewport';"
+                    + "  document.head.appendChild(meta);"
+                    + "}"
+                    + "var ratio = " + scaleRatio + ";"
+                    + "meta.content = 'width=device-width, initial-scale=' + ratio.toFixed(4) + ', maximum-scale=' + ratio.toFixed(4) + ', minimum-scale=' + ratio.toFixed(4) + ', user-scalable=no, viewport-fit=cover';"
+                    + "window.dispatchEvent(new Event('resize'));"
                     + "})();";
 
             webView.loadUrl("javascript:" + js);
